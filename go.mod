@@ -1,4 +1,4 @@
-module main
+module ermchat-server
 
 go 1.27.0
 
