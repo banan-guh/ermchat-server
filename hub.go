@@ -2,11 +2,19 @@ package main
 
 import (
 	"log"
+	//"strings"
+	"sync"
 )
 
+type Message struct {
+	Channel string
+	Data    []byte
+}
+
 type Hub struct {
-	clients    map[*Client]bool
-	broadcast  chan []byte
+	mu         sync.Mutex
+	channels   map[string]map[*Client]bool
+	broadcast  chan Message
 	register   chan *Client
 	unregister chan *Client
 }
@@ -14,24 +22,61 @@ type Hub struct {
 func (h *Hub) Run() {
 	for {
 		select {
-		case client := <-h.register:
-			h.clients[client] = true
-			log.Printf("client joined (%d total)", len(h.clients))
+		case <-h.register:
+			//h.clients[client] = true
+			log.Printf("client joined")
 		case client := <-h.unregister:
-			delete(h.clients, client)
-			log.Printf("client left (%d total)", len(h.clients))
-		case msg := <-h.broadcast:
-			for client := range h.clients {
-				client.send <- msg
+			h.mu.Lock()
+			for ch, clients := range h.channels {
+				delete(clients, client)
+				if len(clients) == 0 {
+					delete(h.channels, ch)
+				}
 			}
+			h.mu.Unlock()
+			log.Printf("client left")
+		case msg := <-h.broadcast:
+			h.mu.Lock()
+			if clients, ok := h.channels[msg.Channel]; ok {
+				for client := range clients {
+					select {
+					case client.send <- msg.Data:
+					default:
+						// client too slow
+						close(client.send)
+						delete(clients, client)
+					}
+				}
+			}
+			h.mu.Unlock()
+		}
+	}
+}
+
+func (h *Hub) Join(channel string, c *Client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.channels[channel] == nil {
+		h.channels[channel] = make(map[*Client]bool)
+	}
+	h.channels[channel][c] = true
+}
+
+func (h *Hub) Leave(channel string, c *Client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if clients, ok := h.channels[channel]; ok {
+		delete(clients, c)
+		if len(clients) == 0 {
+			delete(h.channels, channel) // no one watching, clean up
 		}
 	}
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		clients:    make(map[*Client]bool),
-		broadcast:  make(chan []byte, 256),
+		channels:   make(map[string]map[*Client]bool),
+		broadcast:  make(chan Message, 256),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 	}

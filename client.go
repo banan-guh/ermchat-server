@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
-	//"strings"
+	"strings"
 
 	"github.com/gorilla/websocket"
 )
@@ -14,6 +14,7 @@ type Client struct {
 	hub  *Hub
 	conn *websocket.Conn
 	send chan []byte
+	channels map[string]bool
 }
 
 var upgrader = websocket.Upgrader{
@@ -54,7 +55,16 @@ func (c *Client) readPump() {
 		if err != nil {
 			return
 		}
-		c.hub.broadcast <- msg
+		line := string(msg)
+		if strings.HasPrefix(line, "JOIN ") {
+			channel := strings.TrimSpace(strings.TrimPrefix(line, "JOIN "))
+			c.hub.Join(channel, c)
+			c.channels[channel] = true
+		} else if strings.HasPrefix(line, "PART ") {
+			channel := strings.TrimSpace(strings.TrimPrefix(line, "PART "))
+			c.hub.Leave(channel, c)
+			delete(c.channels, channel)
+		}
 	}
 }
 
@@ -73,7 +83,12 @@ func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256)}
+	client := &Client{
+		hub: hub, 
+		conn: conn, 
+		send: make(chan []byte, 256),
+		channels: make(map[string]bool),
+	}
 	client.hub.register <- client
 	go client.writePump()
 	go client.readPump()

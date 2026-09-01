@@ -13,7 +13,7 @@ func main() {
 	go func() {
 		for {
 			time.Sleep(5 * time.Second)
-			hub.broadcast <- []byte("@badge-info=;badges=;color=#FF0000;display-name=TestBot;... :testbot!testbot@testbot.tmi.twitch.tv PRIVMSG #test :hello from dummy\r\n")
+			hub.broadcast <- Message{Channel: "#test", Data: []byte("...PRIVMSG #test :hello\r\n")}
 		}
 	}()
 
