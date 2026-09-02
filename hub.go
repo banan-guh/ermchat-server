@@ -14,11 +14,13 @@ type Message struct {
 type Hub struct {
 	mu         sync.Mutex
 	channels   map[string]map[*Client]bool
+	lastseen   map[string]int64
 	broadcast  chan Message
 	register   chan *Client
 	unregister chan *Client
 	upstream   *TwitchUpstream
 	limiter    *RateLimiter
+	jsonpath   string
 }
 
 func (h *Hub) Run() {
@@ -84,6 +86,7 @@ func (h *Hub) Leave(channel string, c *Client) {
 func NewHub() *Hub {
 	return &Hub{
 		channels:   make(map[string]map[*Client]bool),
+		lastseen:   make(map[string]int64)
 		broadcast:  make(chan Message, 256),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
