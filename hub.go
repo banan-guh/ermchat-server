@@ -18,6 +18,7 @@ type Hub struct {
 	register   chan *Client
 	unregister chan *Client
 	upstream   *TwitchUpstream
+	limiter    *RateLimiter
 }
 
 func (h *Hub) Run() {
@@ -60,7 +61,7 @@ func (h *Hub) Join(channel string, c *Client) {
 	if h.channels[channel] == nil {
 		h.channels[channel] = make(map[*Client]bool)
 		if h.upstream != nil {
-			h.upstream.send <- "JOIN " + channel + "\r\n"
+			h.limiter.Enqueue("JOIN " + channel + "\r\n")
 		}
 	}
 	h.channels[channel][c] = true

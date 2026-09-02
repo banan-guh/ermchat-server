@@ -17,6 +17,7 @@ func main() {
 	go hub.Run()
 
 	upstream := NewTwitchUpstream(hub)
+	hub.limiter = NewRateLimiter(upstream.send)
 	hub.upstream = upstream
 	upstream.dialTwitch()
 
