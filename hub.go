@@ -17,6 +17,7 @@ type Hub struct {
 	broadcast  chan Message
 	register   chan *Client
 	unregister chan *Client
+	upstream   *TwitchUpstream
 }
 
 func (h *Hub) Run() {
@@ -58,6 +59,9 @@ func (h *Hub) Join(channel string, c *Client) {
 	defer h.mu.Unlock()
 	if h.channels[channel] == nil {
 		h.channels[channel] = make(map[*Client]bool)
+		if h.upstream != nil {
+			h.upstream.send <- "JOIN " + channel + "\r\n"
+		}
 	}
 	h.channels[channel][c] = true
 }
@@ -69,6 +73,9 @@ func (h *Hub) Leave(channel string, c *Client) {
 		delete(clients, c)
 		if len(clients) == 0 {
 			delete(h.channels, channel) // no one watching, clean up
+			if h.upstream != nil {
+				h.upstream.send <- "PART " + channel + "\r\n"
+			}
 		}
 	}
 }

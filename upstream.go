@@ -21,14 +21,35 @@ var dialer = websocket.Dialer{
 	WriteBufferSize: 4096,
 }
 
-// helper
-func hasPrefixes(line string, prefixes []string) bool {
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(line, prefix) {
-			return true
+// another helper (nuh uh nesting :{} )
+// splits, finds the one with # start and uses it
+func getChannelFromIRC(line string) string {
+	for _, field := range strings.Fields(line) {
+		if strings.HasPrefix(field, "#") {
+			return field
 		}
 	}
-	return false
+	return ""
+}
+
+// another another helper (parse IRC to find cmd)
+func getCommand(line string) string {
+    // strip tags
+    if strings.HasPrefix(line, "@") {
+        if i := strings.IndexByte(line, ' '); i != -1 {
+            line = line[i+1:]
+        }
+    }
+    // strip sender
+    if strings.HasPrefix(line, ":") {
+        if i := strings.IndexByte(line, ' '); i != -1 {
+            line = line[i+1:]
+        }
+    }
+    if i := strings.IndexByte(line, ' '); i != -1 {
+        return line[:i]
+    }
+    return line
 }
 
 func (upstream *TwitchUpstream) readPump() {
@@ -43,17 +64,14 @@ func (upstream *TwitchUpstream) readPump() {
 		}
 		line := string(msg)
 		log.Println(line)
-		switch {
-		case strings.HasPrefix(line, "PING"):
+		cmd := getCommand(line)
+		switch cmd {
+		case "PING":
 			upstream.send <- "PONG :tmi.twitch.tv\r\n"
-		case hasPrefixes(line, []string{
-			"PRIVMSG", 
-			"USERNOTICE", 
-			"CLEARCHAT", 
-			"CLEARMSG", 
-			"ROOMSTATE", 
-			"NOTICE"}):
-			upstream.hub.broadcast <- Message{Channel: "#test", Data: msg} // change to real channel later
+		case "PRIVMSG", "USERNOTICE", "CLEARCHAT", "CLEARMSG", "ROOMSTATE", "NOTICE":
+			upstream.hub.broadcast <- Message{Channel: getChannelFromIRC(line), Data: msg}
+		default:
+			// no action
 		}
 	}
 }

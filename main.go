@@ -1,5 +1,11 @@
 package main
 
+// TODO: future things to do:
+/*
+- shrink tags (diff, send hashes), data saver
+- pings (later)
+*/
+
 import (
 	"log"
 	"net/http"
@@ -11,6 +17,7 @@ func main() {
 	go hub.Run()
 
 	upstream := NewTwitchUpstream(hub)
+	hub.upstream = upstream
 	upstream.dialTwitch()
 
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
