@@ -4,6 +4,7 @@ import (
 	"log"
 	//"strings"
 	"sync"
+	"time"
 )
 
 type Message struct {
@@ -60,6 +61,7 @@ func (h *Hub) Run() {
 func (h *Hub) Join(channel string, c *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.lastseen[channel] = time.Now().Unix() // refresh every call
 	if h.channels[channel] == nil {
 		h.channels[channel] = make(map[*Client]bool)
 		if h.upstream != nil {
@@ -83,12 +85,27 @@ func (h *Hub) Leave(channel string, c *Client) {
 	}
 }
 
+func (h *Hub) SaveLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		h.mu.Lock()
+		snapshot := make(map[string]int64, len(h.lastseen))
+		for ch, ts := range h.lastseen {
+			snapshot[ch] = ts
+		}
+		h.mu.Unlock()
+		SaveChannels(snapshot, h.jsonpath)
+	}
+}
+
 func NewHub() *Hub {
 	return &Hub{
 		channels:   make(map[string]map[*Client]bool),
-		lastseen:   make(map[string]int64)
+		lastseen:   make(map[string]int64),
 		broadcast:  make(chan Message, 256),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
+		jsonpath: "channels.json",
 	}
 }
