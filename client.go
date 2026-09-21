@@ -39,12 +39,15 @@ func (c *Client) readPump() {
 			c.send <- []byte(":tmi.twitch.tv CAP * ACK " + req + "\r\n")
 
 		case strings.HasPrefix(line, "PASS"):
-			// ignore
+			// ignore FAHHHHHHHHHHHHHHHHHHHHHHHHHHHH
 		case strings.HasPrefix(line, "NICK"):
 			nick := strings.TrimSpace(strings.TrimPrefix(line, "NICK "))
 			if nick == "" { nick = "justinfan12345"}
 			c.sendWelcome(nick)
 		case strings.HasPrefix(line, "JOIN "):
+			if len(c.channels) >= 100 {
+				continue // max 100 chs
+			}
 			channel := strings.TrimSpace(strings.TrimPrefix(line, "JOIN "))
 			c.hub.Join(channel, c)
 			c.channels[channel] = true
@@ -57,7 +60,7 @@ func (c *Client) readPump() {
 	}
 }
 
-// header twitch sends (we relay so we need it too)
+// header twitch sends (we relay so we need it too) <- not actually, ngl we should remove
 func (c *Client) sendWelcome(nick string) {
     //nick := "justinfan12345"
     c.send <- []byte(":tmi.twitch.tv 001 " + nick + " :Welcome, GLHF!\r\n")
