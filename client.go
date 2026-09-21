@@ -33,24 +33,33 @@ func (c *Client) readPump() {
 			return
 		}
 		line := string(msg)
-		switch {
+		switch { // future: add ping to app, currently none
 		case strings.HasPrefix(line, "CAP REQ "):
 			req := strings.TrimSpace(strings.TrimPrefix(line, "CAP REQ "))
 			c.send <- []byte(":tmi.twitch.tv CAP * ACK " + req + "\r\n")
 
+		case strings.HasPrefix(line, "PING"):
+			token := strings.TrimSpace(strings.TrimPrefix(line, "PING"))
+			c.send <- []byte("PONG " + token + "\r\n")
+
 		case strings.HasPrefix(line, "PASS"):
 			// ignore FAHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+
 		case strings.HasPrefix(line, "NICK"):
 			nick := strings.TrimSpace(strings.TrimPrefix(line, "NICK "))
 			if nick == "" { nick = "justinfan12345"}
 			c.sendWelcome(nick)
+
 		case strings.HasPrefix(line, "JOIN "):
-			if len(c.channels) >= 100 {
-				continue // max 100 chs
+			list := strings.TrimSpace(strings.TrimPrefix(line, "JOIN "))
+			for _, channel := range strings.Split(list, ",") {
+				channel = strings.TrimSpace(channel)
+				if channel == "" {
+					continue
+				}
+				c.hub.Join(channel, c)
+				c.channels[channel] = true
 			}
-			channel := strings.TrimSpace(strings.TrimPrefix(line, "JOIN "))
-			c.hub.Join(channel, c)
-			c.channels[channel] = true
 
 		case strings.HasPrefix(line, "PART "):
 			channel := strings.TrimSpace(strings.TrimPrefix(line, "PART "))
