@@ -26,7 +26,8 @@ func main() {
 	for ch, ts := range cached { // for ch, ts in cache:
 		hub.lastseen[ch] = ts // if fails to load, it doesn't nuke the json
 	}
-	for _, ch := range FilterStale(cached) { // for everything in cache:
+	fresh, _ := FilterStale(cached)
+	for _, ch := range fresh { // for everything in cache:
 		hub.limiter.Enqueue("JOIN " + ch + "\r\n")
 	}
 
