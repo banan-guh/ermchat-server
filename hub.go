@@ -8,20 +8,24 @@ import (
 )
 
 type Message struct {
-	Channel string
-	Data    []byte
+	Channel   string
+	Data      []byte
+	RoomState bool
 }
 
 type Hub struct {
-	mu         sync.Mutex
-	channels   map[string]map[*Client]bool
-	lastseen   map[string]int64
-	broadcast  chan Message
-	register   chan *Client
-	unregister chan *Client
-	upstream   *TwitchUpstream
-	limiter    *RateLimiter
-	jsonpath   string
+	mu             sync.Mutex
+	channels       map[string]map[*Client]bool
+	lastseen       map[string]int64
+	nicks          map[string]*Client
+	upstreamJoined map[string]bool
+	roomstate      map[string][]byte
+	broadcast      chan Message
+	register       chan *Client
+	unregister     chan *Client
+	upstream       *TwitchUpstream
+	limiter        *RateLimiter
+	jsonpath       string
 }
 
 func (h *Hub) Run() {
@@ -38,10 +42,20 @@ func (h *Hub) Run() {
 					delete(h.channels, ch)
 				}
 			}
+			for nick, owner := range h.nicks {
+				if owner == client {
+					delete(h.nicks, nick)
+					break
+				}
+			}
 			h.mu.Unlock()
 			log.Printf("client left")
 		case msg := <-h.broadcast:
 			h.mu.Lock()
+			if msg.RoomState {
+				h.roomstate[msg.Channel] = msg.Data
+				h.upstreamJoined[msg.Channel] = true
+			}
 			if clients, ok := h.channels[msg.Channel]; ok {
 				for client := range clients {
 					select {
@@ -64,11 +78,22 @@ func (h *Hub) Join(channel string, c *Client) {
 	h.lastseen[channel] = time.Now().Unix() // refresh every call
 	if h.channels[channel] == nil {
 		h.channels[channel] = make(map[*Client]bool)
-		if h.upstream != nil {
-			h.limiter.Enqueue("JOIN " + channel + "\r\n")
-		}
 	}
 	h.channels[channel][c] = true
+	if h.upstreamJoined[channel] {
+		// if on twitch, don't rejoin
+		if cached, ok := h.roomstate[channel]; ok {
+			select {
+			case c.send <- cached:
+			default:
+			}
+			return
+		}
+	}
+	if h.upstream != nil {
+		h.upstreamJoined[channel] = true
+		h.limiter.Enqueue("JOIN " + channel + "\r\n")
+	}
 }
 
 func (h *Hub) Leave(channel string, c *Client) {
@@ -78,6 +103,8 @@ func (h *Hub) Leave(channel string, c *Client) {
 		delete(clients, c)
 		if len(clients) == 0 {
 			delete(h.channels, channel) // no one watching, clean up
+			delete(h.upstreamJoined, channel)
+			delete(h.roomstate, channel)
 			if h.upstream != nil {
 				h.upstream.send <- "PART " + channel + "\r\n"
 			}
@@ -113,6 +140,8 @@ func (h *Hub) GC() {
 			}
 			delete(h.lastseen, ch)
 			delete(h.channels, ch)
+			delete(h.upstreamJoined, ch)
+			delete(h.roomstate, ch)
 			removed = append(removed, ch)
 		}
 		snapshot := make(map[string]int64, len(h.lastseen))
@@ -130,13 +159,31 @@ func (h *Hub) GC() {
 	}
 }
 
+// claimNick registers c under nick, killing any previous holder.
+// The old socket's readPump errors out and its unregister cleans up.
+func (h *Hub) claimNick(nick string, c *Client) {
+	h.mu.Lock()
+	old, ok := h.nicks[nick]
+	if !ok || old == c {
+		h.nicks[nick] = c
+		h.mu.Unlock()
+		return
+	}
+	h.nicks[nick] = c
+	h.mu.Unlock()
+	old.conn.Close()
+}
+
 func NewHub() *Hub {
 	return &Hub{
-		channels:   make(map[string]map[*Client]bool),
-		lastseen:   make(map[string]int64),
-		broadcast:  make(chan Message, 256),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
+		channels:       make(map[string]map[*Client]bool),
+		lastseen:       make(map[string]int64),
+		nicks:          make(map[string]*Client),
+		upstreamJoined: make(map[string]bool),
+		roomstate:      make(map[string][]byte),
+		broadcast:      make(chan Message, 256),
+		register:       make(chan *Client),
+		unregister:     make(chan *Client),
 		jsonpath: "channels.json",
 	}
 }

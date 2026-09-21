@@ -62,16 +62,20 @@ func (upstream *TwitchUpstream) readPump() {
 		if err != nil {
 			return
 		}
-		line := string(msg)
-		log.Println(line)
-		cmd := getCommand(line)
-		switch cmd {
-		case "PING":
-			upstream.send <- "PONG :tmi.twitch.tv\r\n"
-		case "PRIVMSG", "USERNOTICE", "CLEARCHAT", "CLEARMSG", "ROOMSTATE", "NOTICE":
-			upstream.hub.broadcast <- Message{Channel: getChannelFromIRC(line), Data: msg}
-		default:
-			// no action
+		for _, line := range strings.Split(string(msg), "\r\n") {
+			if line == "" {
+				continue
+			}
+			//log.Println(line)
+			cmd := getCommand(line)
+			switch cmd {
+			case "PING":
+				upstream.send <- "PONG :tmi.twitch.tv\r\n"
+			case "PRIVMSG", "USERNOTICE", "CLEARCHAT", "CLEARMSG", "ROOMSTATE", "NOTICE":
+				upstream.hub.broadcast <- Message{Channel: getChannelFromIRC(line), Data: []byte(line + "\r\n"), RoomState: cmd == "ROOMSTATE"}
+			default:
+				// no action
+			}
 		}
 	}
 }

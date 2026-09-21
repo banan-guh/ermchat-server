@@ -48,6 +48,9 @@ func (c *Client) readPump() {
 		case strings.HasPrefix(line, "NICK"):
 			nick := strings.TrimSpace(strings.TrimPrefix(line, "NICK "))
 			if nick == "" { nick = "justinfan12345"}
+			if !strings.HasPrefix(nick, "justinfan") {
+				c.hub.claimNick(nick, c)
+			}
 			c.sendWelcome(nick)
 
 		case strings.HasPrefix(line, "JOIN "):
