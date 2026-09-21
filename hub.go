@@ -105,22 +105,28 @@ func (h *Hub) GC() {
 	for range ticker.C {
 		h.mu.Lock()
 		_, stale := FilterStale(h.lastseen)
+		var removed []string // stale is candidates, removed is actual
 		for _, ch := range stale {
+			if len(h.channels[ch]) > 0 {
+				h.lastseen[ch] = time.Now().Unix()
+				continue
+			}
 			delete(h.lastseen, ch)
 			delete(h.channels, ch)
+			removed = append(removed, ch)
 		}
 		snapshot := make(map[string]int64, len(h.lastseen))
 		for ch, ts := range h.lastseen {
 			snapshot[ch] = ts
 		}
 		h.mu.Unlock()
-		for _, ch := range stale {
+		for _, ch := range removed {
 			if h.upstream != nil {
 				h.limiter.Enqueue("PART " + ch + "\r\n")
 			}
 		}
 		SaveChannels(snapshot, h.jsonpath)
-		log.Printf("GC: removed %d stale channels", len(stale))
+		log.Printf("GC: removed %d stale channels", len(removed))
 	}
 }
 
