@@ -99,6 +99,31 @@ func (h *Hub) SaveLoop() {
 	}
 }
 
+func (h *Hub) GC() {
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		h.mu.Lock()
+		_, stale := FilterStale(h.lastseen)
+		for _, ch := range stale {
+			delete(h.lastseen, ch)
+			delete(h.channels, ch)
+		}
+		snapshot := make(map[string]int64, len(h.lastseen))
+		for ch, ts := range h.lastseen {
+			snapshot[ch] = ts
+		}
+		h.mu.Unlock()
+		for _, ch := range stale {
+			if h.upstream != nil {
+				h.limiter.Enqueue("PART " + ch + "\r\n")
+			}
+		}
+		SaveChannels(snapshot, h.jsonpath)
+		log.Printf("GC: removed %d stale channels", len(stale))
+	}
+}
+
 func NewHub() *Hub {
 	return &Hub{
 		channels:   make(map[string]map[*Client]bool),

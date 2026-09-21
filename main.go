@@ -16,6 +16,7 @@ func main() {
 	hub := NewHub()
 	go hub.Run()
 	go hub.SaveLoop()
+	go hub.GC()
 
 	upstream := NewTwitchUpstream(hub)
 	hub.limiter = NewRateLimiter(upstream.send)
