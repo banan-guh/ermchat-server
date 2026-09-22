@@ -9,32 +9,18 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 	//"time"
 )
 
 func main() {
-	hub := NewHub()
-	go hub.Run()
-	go hub.SaveLoop()
-	go hub.GC()
-
-	upstream := NewTwitchUpstream(hub)
-	hub.limiter = NewRateLimiter(upstream.send)
-	hub.upstream = upstream
-	upstream.dialTwitch()
-
-	cached := LoadChannels(hub.jsonpath)
-	for ch, ts := range cached { // for ch, ts in cache:
-		hub.lastseen[ch] = ts // if fails to load, it doesn't nuke the json
-	}
-	fresh, _ := FilterStale(cached)
-	for _, ch := range fresh { // for everything in cache:
-		hub.limiter.Enqueue("JOIN " + ch + "\r\n")
-	}
-
+//
+	os.MkdirAll("users", 0755)
+	
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		serveWs(hub, w, r)
+		serveWs(w, r)
 	})
+	
 	log.Println("listening on :8080")
 	log.Println("join this: ws://localhost:8080/ws")
 	log.Fatal(http.ListenAndServe(":8080", nil))

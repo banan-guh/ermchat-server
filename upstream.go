@@ -73,6 +73,8 @@ func (upstream *TwitchUpstream) readPump() {
 				upstream.send <- "PONG :tmi.twitch.tv\r\n"
 			case "PRIVMSG", "USERNOTICE", "CLEARCHAT", "CLEARMSG", "ROOMSTATE", "NOTICE":
 				upstream.hub.broadcast <- Message{Channel: getChannelFromIRC(line), Data: []byte(line + "\r\n"), RoomState: cmd == "ROOMSTATE"}
+			case "USERSTATE", "GLOBALUSERSTATE":
+				upstream.hub.broadcast <- Message{Channel: getChannelFromIRC(line), Data: []byte(line + "\r\n")}
 			default:
 				// no action
 			}
@@ -93,8 +95,17 @@ func (upstream *TwitchUpstream) dialTwitch() {
 	url := "wss://irc-ws.chat.twitch.tv:443"
 	conn, _, err := dialer.Dial(url, nil)
 	if err != nil { return }
-	if err := conn.WriteMessage(websocket.TextMessage, []byte("PASS pass\r\n")); err != nil { return }
-	if err := conn.WriteMessage(websocket.TextMessage, []byte("NICK justinfan16845\r\n")); err != nil { return }
+//
+	nick := upstream.hub.userNick
+	if nick == "" {
+		nick = "justinfan16845"
+	}
+	pass := "PASS pass\r\n"
+	if upstream.hub.userToken != "" {
+		pass = "PASS oauth:" + upstream.hub.userToken + "\r\n"
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(pass)); err != nil { return }
+	if err := conn.WriteMessage(websocket.TextMessage, []byte("NICK "+nick+"\r\n")); err != nil { return }
 	if err := conn.WriteMessage(websocket.TextMessage, []byte("CAP REQ :twitch.tv/tags twitch.tv/commands\r\n")); err != nil { return }
 	upstream.conn = conn
 	go upstream.writePump()

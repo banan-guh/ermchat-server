@@ -15,9 +15,10 @@ type Message struct {
 
 type Hub struct {
 	mu             sync.Mutex
+	userNick       string
+	userToken      string
 	channels       map[string]map[*Client]bool
 	lastseen       map[string]int64
-	nicks          map[string]*Client
 	upstreamJoined map[string]bool
 	roomstate      map[string][]byte
 	broadcast      chan Message
@@ -42,12 +43,6 @@ func (h *Hub) Run() {
 					delete(h.channels, ch)
 				}
 			}
-			for nick, owner := range h.nicks {
-				if owner == client {
-					delete(h.nicks, nick)
-					break
-				}
-			}
 			h.mu.Unlock()
 			log.Printf("client left")
 		case msg := <-h.broadcast:
@@ -56,7 +51,21 @@ func (h *Hub) Run() {
 				h.roomstate[msg.Channel] = msg.Data
 				h.upstreamJoined[msg.Channel] = true
 			}
-			if clients, ok := h.channels[msg.Channel]; ok {
+			if msg.Channel == "" {
+				seen := make(map[*Client]bool)
+				for _, clients := range h.channels {
+					for client := range clients {
+						if seen[client] {
+							continue
+						}
+						seen[client] = true
+						select {
+						case client.send <- msg.Data:
+						default:
+						}
+					}
+				}
+			} else if clients, ok := h.channels[msg.Channel]; ok {
 				for client := range clients {
 					select {
 					case client.send <- msg.Data:
@@ -159,26 +168,48 @@ func (h *Hub) GC() {
 	}
 }
 
-// claimNick registers c under nick, killing any previous holder.
-// The old socket's readPump errors out and its unregister cleans up.
-func (h *Hub) claimNick(nick string, c *Client) {
-	h.mu.Lock()
-	old, ok := h.nicks[nick]
-	if !ok || old == c {
-		h.nicks[nick] = c
-		h.mu.Unlock()
-		return
+type HubRegistry struct {
+	mu   sync.Mutex
+	hubs map[string]*Hub
+}
+
+func NewHubRegistry() *HubRegistry {
+	return &HubRegistry{hubs: make(map[string]*Hub)}
+}
+
+var userHubs = NewHubRegistry()
+
+func routeHub(nick, token string) *Hub {
+	userHubs.mu.Lock()
+	defer userHubs.mu.Unlock()
+	h, ok := userHubs.hubs[token]
+	if ok {
+		return h
 	}
-	h.nicks[nick] = c
-	h.mu.Unlock()
-	old.conn.Close()
+	// else, make a new hub
+	h = NewHub()
+	h.jsonpath = "users/" + nick + ".json"
+	h.userNick = nick
+	h.userToken = token
+	upstream := NewTwitchUpstream(h)
+	h.limiter = NewRateLimiter(upstream.send)
+	h.upstream = upstream
+	saved := LoadChannels(h.jsonpath)
+	for ch, ts := range saved {
+		h.lastseen[ch] = ts
+	}
+	go h.Run()
+	go h.SaveLoop()
+	go h.GC()
+	upstream.dialTwitch()
+	userHubs.hubs[token] = h
+	return h
 }
 
 func NewHub() *Hub {
 	return &Hub{
 		channels:       make(map[string]map[*Client]bool),
 		lastseen:       make(map[string]int64),
-		nicks:          make(map[string]*Client),
 		upstreamJoined: make(map[string]bool),
 		roomstate:      make(map[string][]byte),
 		broadcast:      make(chan Message, 256),

@@ -32,3 +32,4 @@ go.work.sum
 # .vscode/
 ermchat-server
 channels.json
+users/

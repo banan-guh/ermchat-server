@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -33,26 +34,12 @@ func (c *Client) readPump() {
 			return
 		}
 		line := string(msg)
-		switch { // future: add ping to app, currently none
-		case strings.HasPrefix(line, "CAP REQ "):
-			req := strings.TrimSpace(strings.TrimPrefix(line, "CAP REQ "))
-			c.send <- []byte(":tmi.twitch.tv CAP * ACK " + req + "\r\n")
-
+		switch { // future: add ping to app (from server to app), currently none
 		case strings.HasPrefix(line, "PING"):
 			token := strings.TrimSpace(strings.TrimPrefix(line, "PING"))
 			c.send <- []byte("PONG " + token + "\r\n")
-
-		case strings.HasPrefix(line, "PASS"):
-			// ignore FAHHHHHHHHHHHHHHHHHHHHHHHHHHHH
-
-		case strings.HasPrefix(line, "NICK"):
-			nick := strings.TrimSpace(strings.TrimPrefix(line, "NICK "))
-			if nick == "" { nick = "justinfan12345"}
-			if !strings.HasPrefix(nick, "justinfan") {
-				c.hub.claimNick(nick, c)
-			}
-			c.sendWelcome(nick)
-
+		
+		// pass, nick moved to serveWs, cap removed here because it's not supposed to be
 		case strings.HasPrefix(line, "JOIN "):
 			list := strings.TrimSpace(strings.TrimPrefix(line, "JOIN "))
 			for _, channel := range strings.Split(list, ",") {
@@ -72,7 +59,7 @@ func (c *Client) readPump() {
 	}
 }
 
-// header twitch sends (we relay so we need it too) <- not actually, ngl we should remove
+// header twitch sends (we relay so we need it too) <- not actually, ngl we could remove
 func (c *Client) sendWelcome(nick string) {
     //nick := "justinfan12345"
     c.send <- []byte(":tmi.twitch.tv 001 " + nick + " :Welcome, GLHF!\r\n")
@@ -93,19 +80,63 @@ func (c *Client) writePump() {
 	}
 }
 
-func serveWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
+func serveWs(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
 		return
 	}
+	// if can't get nick in <10s, or if pass is wrong, close connection
+	// (different from official twitch)
+	nick := ""
+	token := ""
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+
+	for nick == "" || token == "" {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("limbo read err: %v", err)
+			conn.Close()
+			return
+		}
+		line := string(msg)
+		log.Printf("limbo got: %q", line)
+		switch {
+		case strings.HasPrefix(line, "NICK"): // real creds, need to parse (req nick AND pass)
+			n := strings.TrimSpace(strings.TrimPrefix(line, "NICK "))
+			if strings.HasPrefix(n, "justinfan") { // we don't support justinfan here
+				conn.Close()
+				return
+			}
+			if n != "" {
+				nick = n
+			}
+		case strings.HasPrefix(line, "PASS"): // pass (token)
+			t := strings.TrimSpace(strings.TrimPrefix(line, "PASS "))
+			t = strings.TrimPrefix(t, "oauth:")
+			if t != "" {
+				token = t
+			}
+		case strings.HasPrefix(line, "CAP REQ "):
+			// hardcoded in upstream, I'm not making extra compat
+			// for what I don't need (purely for app, not anyone else)
+			// flow: cap req ALWAYS FIRST! then, nick and pass.
+			// otherwise cap req not seen by readpump
+			req := strings.TrimSpace(strings.TrimPrefix(line, "CAP REQ "))
+			conn.WriteMessage(websocket.TextMessage, []byte(":tmi.twitch.tv CAP * ACK "+req+"\r\n"))
+		}
+	}
+	conn.SetReadDeadline(time.Time{})
+	target := routeHub(nick, token)
 	client := &Client{
-		hub: hub, 
-		conn: conn, 
+		hub: target,
+		conn: conn,
 		send: make(chan []byte, 256),
 		channels: make(map[string]bool),
 	}
-	client.hub.register <- client
+	target.register <- client
 	go client.writePump()
 	go client.readPump()
+
+	client.sendWelcome(nick)
 }
