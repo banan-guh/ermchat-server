@@ -30,11 +30,14 @@ func (r *RateLimiter) drain() {
 	defer ticker.Stop()
 	for range ticker.C {
 		r.mu.Lock()
-		for i := 0; i < 6; i++ {
-			if len(r.queue) > 0 {
-				item := r.queue[0]
+		sent := 0
+		for sent < 6 && len(r.queue) > 0 {
+			select {
+			case r.upstream <- r.queue[0]:
 				r.queue = r.queue[1:]
-				r.upstream <- item
+				sent++
+			default:
+				sent = 6
 			}
 		}
 		r.mu.Unlock()

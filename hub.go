@@ -201,7 +201,7 @@ func routeHub(nick, token string) *Hub {
 	go h.Run()
 	go h.SaveLoop()
 	go h.GC()
-	upstream.dialTwitch()
+	go upstream.maintainUpstream()
 	userHubs.hubs[token] = h
 	return h
 }
