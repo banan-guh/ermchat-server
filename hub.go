@@ -17,6 +17,8 @@ type Hub struct {
 	mu             sync.Mutex
 	userNick       string
 	userToken      string
+	quit           chan struct{}
+	dropped        bool
 	channels       map[string]map[*Client]bool
 	lastseen       map[string]int64
 	upstreamJoined map[string]bool
@@ -179,17 +181,23 @@ func NewHubRegistry() *HubRegistry {
 
 var userHubs = NewHubRegistry()
 
-func routeHub(nick, token string) *Hub {
+func routeHub(nick, token string) (*Hub, error) {
+	id, err := validateToken(token)
+	if err != nil {
+		return nil, err
+	}
 	userHubs.mu.Lock()
 	defer userHubs.mu.Unlock()
-	h, ok := userHubs.hubs[token]
-	if ok {
-		return h
+	h, ok := userHubs.hubs[id.userID]
+	if ok { // if cache hit
+		h.userToken = token // don't trust passed nick, it's a bit paranoid but why not
+		h.userNick = id.login
+		return h, nil
 	}
 	// else, make a new hub
 	h = NewHub()
-	h.jsonpath = "users/" + nick + ".json"
-	h.userNick = nick
+	h.jsonpath = "users/" + id.userID + ".json"
+	h.userNick = id.login // nick is kinda useless but we keep for compat, it's overridden (security)
 	h.userToken = token
 	upstream := NewTwitchUpstream(h)
 	h.limiter = NewRateLimiter(upstream.send)
@@ -202,12 +210,37 @@ func routeHub(nick, token string) *Hub {
 	go h.SaveLoop()
 	go h.GC()
 	go upstream.maintainUpstream()
-	userHubs.hubs[token] = h
-	return h
+	userHubs.hubs[id.userID] = h
+	return h, nil
+}
+
+func (h *Hub) dropClients() {
+	h.mu.Lock()
+	if h.dropped {
+		h.mu.Unlock()
+		return
+	}
+	h.dropped = true
+	seen := make(map[*Client]bool)
+	var clients []*Client
+	for _, roster := range h.channels {
+		for c := range roster {
+			if !seen[c] {
+				seen[c] = true
+				clients = append(clients, c)
+			}
+		}
+	}
+	h.mu.Unlock()
+	close(h.quit)
+	for _, c := range clients {
+		c.conn.Close()
+	}
 }
 
 func NewHub() *Hub {
 	return &Hub{
+		quit:           make(chan struct{}),
 		channels:       make(map[string]map[*Client]bool),
 		lastseen:       make(map[string]int64),
 		upstreamJoined: make(map[string]bool),

@@ -1,0 +1,4 @@
+- add comments
+- add logging for # channels add/rm
+- hash / tok saving
+- notifications

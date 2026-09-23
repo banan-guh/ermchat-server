@@ -71,10 +71,23 @@ func (upstream *TwitchUpstream) readPump(conn *websocket.Conn, dead chan bool) {
 			switch cmd {
 			case "PING":
 				upstream.send <- "PONG :tmi.twitch.tv\r\n"
+
 			case "PRIVMSG", "USERNOTICE", "CLEARCHAT", "CLEARMSG", "ROOMSTATE", "NOTICE":
-				upstream.hub.broadcast <- Message{Channel: getChannelFromIRC(line), Data: []byte(line + "\r\n"), RoomState: cmd == "ROOMSTATE"}
+				upstream.hub.broadcast <- Message{
+					Channel: getChannelFromIRC(line), 
+					Data: []byte(line + "\r\n"), 
+					RoomState: cmd == "ROOMSTATE",
+				}
+				if strings.Contains(line, "Login authentication failed") {
+        			upstream.hub.dropClients()
+    			}
+
 			case "USERSTATE", "GLOBALUSERSTATE":
-				upstream.hub.broadcast <- Message{Channel: getChannelFromIRC(line), Data: []byte(line + "\r\n")}
+				upstream.hub.broadcast <- Message{
+					Channel: getChannelFromIRC(line), 
+					Data: []byte(line + "\r\n"),
+				}
+
 			default:
 				// no action
 			}
@@ -139,7 +152,11 @@ func (upstream *TwitchUpstream) maintainUpstream() {
 			}
 			cur = conn
 			upstream.rejoinAll()
-			<-dead
+			select {
+			case <-dead:
+			case <-upstream.hub.quit:
+				return
+			}
 		} else {
 			// duration in nanoseconds??? weird ass go,
 			// int64 to format for rand func

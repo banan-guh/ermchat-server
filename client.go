@@ -95,12 +95,10 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 	for nick == "" || token == "" {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
-			log.Printf("limbo read err: %v", err)
 			conn.Close()
 			return
 		}
 		line := string(msg)
-		log.Printf("limbo got: %q", line)
 		switch {
 		case strings.HasPrefix(line, "NICK"): // real creds, need to parse (req nick AND pass)
 			n := strings.TrimSpace(strings.TrimPrefix(line, "NICK "))
@@ -127,7 +125,10 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	conn.SetReadDeadline(time.Time{})
-	target := routeHub(nick, token)
+	target, err := routeHub(nick, token)
+	if err != nil {
+		return
+	}
 	client := &Client{
 		hub: target,
 		conn: conn,
