@@ -13,8 +13,8 @@ import (
 var validateClient = &http.Client{Timeout: 5 * time.Second}
 
 type identity struct {
-	userID string // uncapitalized
-	login  string
+	userID string // uncapitalized - private vars. there are global vars so that's why
+	login  string // maybe we don't need to do all this if there's no validation?
 }
 
 type identityCache struct { // for tokens
@@ -39,6 +39,7 @@ func (c *identityCache) set(token string, id identity) {
 	c.ids[token] = id
 }
 
+// do we even need this? maybe we could just TRY joining IRC.
 var identities = NewIdentityCache()
 func validateToken(token string) (identity, error) {
 	id, ok := identities.get(token)
@@ -59,7 +60,7 @@ func validateToken(token string) (identity, error) {
 	}
 
 	var tokenClaims struct {
-		UserID string `json:"user_id"` // capitalized
+		UserID string `json:"user_id"` // capitalized - mentioned there! ^^^ THESE are the global vars
 		Login  string `json:"login"`
 	}
 

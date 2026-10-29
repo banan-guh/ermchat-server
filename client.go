@@ -60,6 +60,7 @@ func (c *Client) readPump() {
 }
 
 // header twitch sends (we relay so we need it too) <- not actually, ngl we could remove
+// REALLY. do we actually need this. we're a proprietary IRC server. we could do anything here. slated for removal unless we REALLY need it
 func (c *Client) sendWelcome(nick string) {
     //nick := "justinfan12345"
     c.send <- []byte(":tmi.twitch.tv 001 " + nick + " :Welcome, GLHF!\r\n")
@@ -139,5 +140,5 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 	go client.writePump()
 	go client.readPump()
 
-	client.sendWelcome(nick)
+	client.sendWelcome(nick) //REMOVE
 }

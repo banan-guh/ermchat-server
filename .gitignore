@@ -33,3 +33,4 @@ go.work.sum
 ermchat-server
 channels.json
 users/
+notify-reference/

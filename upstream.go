@@ -79,7 +79,7 @@ func (upstream *TwitchUpstream) readPump(conn *websocket.Conn, dead chan bool) {
 					RoomState: cmd == "ROOMSTATE",
 				}
 				if strings.Contains(line, "Login authentication failed") {
-        			upstream.hub.dropClients()
+        			//upstream.hub.dropClients()
     			}
 
 			case "USERSTATE", "GLOBALUSERSTATE":

@@ -9,17 +9,15 @@ package main
 import (
 	"log"
 	"net/http"
-	"os"
+	//"os"
 	//"time"
 )
 
 func main() {
-//
-	os.MkdirAll("users", 0755)
 	
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		serveWs(w, r)
-	})
+	}) // this is super ugly, can we make it cleaner?
 	
 	log.Println("listening on :8080")
 	log.Println("join this: ws://localhost:8080/ws")

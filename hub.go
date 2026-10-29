@@ -18,7 +18,6 @@ type Hub struct {
 	userNick       string
 	userToken      string
 	quit           chan struct{}
-	dropped        bool
 	channels       map[string]map[*Client]bool
 	lastseen       map[string]int64
 	upstreamJoined map[string]bool
@@ -28,7 +27,6 @@ type Hub struct {
 	unregister     chan *Client
 	upstream       *TwitchUpstream
 	limiter        *RateLimiter
-	jsonpath       string
 }
 
 func (h *Hub) Run() {
@@ -123,20 +121,6 @@ func (h *Hub) Leave(channel string, c *Client) {
 	}
 }
 
-func (h *Hub) SaveLoop() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		h.mu.Lock()
-		snapshot := make(map[string]int64, len(h.lastseen))
-		for ch, ts := range h.lastseen {
-			snapshot[ch] = ts
-		}
-		h.mu.Unlock()
-		SaveChannels(snapshot, h.jsonpath)
-	}
-}
-
 func (h *Hub) GC() {
 	ticker := time.NewTicker(30 * time.Minute)
 	defer ticker.Stop()
@@ -155,17 +139,12 @@ func (h *Hub) GC() {
 			delete(h.roomstate, ch)
 			removed = append(removed, ch)
 		}
-		snapshot := make(map[string]int64, len(h.lastseen))
-		for ch, ts := range h.lastseen {
-			snapshot[ch] = ts
-		}
 		h.mu.Unlock()
 		for _, ch := range removed {
 			if h.upstream != nil {
 				h.limiter.Enqueue("PART " + ch + "\r\n")
 			}
 		}
-		SaveChannels(snapshot, h.jsonpath)
 		log.Printf("GC: removed %d stale channels", len(removed))
 	}
 }
@@ -181,6 +160,7 @@ func NewHubRegistry() *HubRegistry {
 
 var userHubs = NewHubRegistry()
 
+// user goes here to either get routed to existing hub, or make a new hub
 func routeHub(nick, token string) (*Hub, error) {
 	id, err := validateToken(token)
 	if err != nil {
@@ -194,48 +174,19 @@ func routeHub(nick, token string) (*Hub, error) {
 		h.userNick = id.login
 		return h, nil
 	}
+
 	// else, make a new hub
 	h = NewHub()
-	h.jsonpath = "users/" + id.userID + ".json"
 	h.userNick = id.login // nick is kinda useless but we keep for compat, it's overridden (security)
 	h.userToken = token
 	upstream := NewTwitchUpstream(h)
 	h.limiter = NewRateLimiter(upstream.send)
 	h.upstream = upstream
-	saved := LoadChannels(h.jsonpath)
-	for ch, ts := range saved {
-		h.lastseen[ch] = ts
-	}
 	go h.Run()
-	go h.SaveLoop()
 	go h.GC()
 	go upstream.maintainUpstream()
 	userHubs.hubs[id.userID] = h
 	return h, nil
-}
-
-func (h *Hub) dropClients() {
-	h.mu.Lock()
-	if h.dropped {
-		h.mu.Unlock()
-		return
-	}
-	h.dropped = true
-	seen := make(map[*Client]bool)
-	var clients []*Client
-	for _, roster := range h.channels {
-		for c := range roster {
-			if !seen[c] {
-				seen[c] = true
-				clients = append(clients, c)
-			}
-		}
-	}
-	h.mu.Unlock()
-	close(h.quit)
-	for _, c := range clients {
-		c.conn.Close()
-	}
 }
 
 func NewHub() *Hub {
@@ -248,6 +199,5 @@ func NewHub() *Hub {
 		broadcast:      make(chan Message, 256),
 		register:       make(chan *Client),
 		unregister:     make(chan *Client),
-		jsonpath: "channels.json",
 	}
 }
